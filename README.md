@@ -38,7 +38,7 @@ Este guia e repositório fornecem tudo o que é necessário para rodar o **9Rout
 
 ## 🚀 Passo a Passo de Instalação e Deploy
 
-Você pode executar o script automático [`setup-dokku.sh`](file:///home/bruno/workspace/bruno/9router/setup-dokku.sh) no seu servidor ou seguir os comandos abaixo manualmente.
+Você pode executar o script automático [`setup-dokku.sh`](./setup-dokku.sh) no seu servidor ou seguir os comandos abaixo manualmente.
 
 ### 1. Criar a Rede Customizada no Dokku
 
