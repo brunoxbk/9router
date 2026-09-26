@@ -1,0 +1,17 @@
+{
+  "name": "9router",
+  "description": "9Router AI routing proxy with OpenCode and Dokku integration",
+  "healthchecks": {
+    "web": [
+      {
+        "type": "startup",
+        "name": "9router web startup check",
+        "path": "/",
+        "port": 20128,
+        "scheme": "http",
+        "attempts": 5,
+        "wait": 5
+      }
+    ]
+  }
+}
