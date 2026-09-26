@@ -1,4 +1,8 @@
-FROM decolua/9router:latest
+FROM decolua/9router:0.5.91
+
+# Atualiza 9router para a versão mais recente e instala o agente opencode-ai
+RUN npm i -g 9router@latest --prefer-online && \
+    npm install -g opencode-ai
 
 # Diretório de persistência e configurações de rede
 ENV PORT=20128
