@@ -1,7 +1,9 @@
 FROM decolua/9router:0.5.91
 
-# Atualiza 9router para a versão mais recente e instala o agente opencode-ai
-RUN npm i -g 9router@latest --prefer-online && \
+# Atualiza o npm para a versão mais recente antes de tudo,
+# depois atualiza o 9router e instala o opencode-ai
+RUN npm install -g npm@latest && \
+    npm i -g 9router@latest --prefer-online && \
     npm install -g opencode-ai
 
 # Diretório de persistência e configurações de rede
