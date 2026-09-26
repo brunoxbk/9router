@@ -1,48 +1,54 @@
-# 9Router no Dokku integrado ao Hermes Agent
+# 9Router no Dokku integrado ao OpenCode e Hermes Agent
 
-Este guia e repositório fornecem tudo o que é necessário para rodar o **9Router** (`decolua/9router`) como uma aplicação Dokku e conectá-lo de forma segura e direta ao **Hermes Agent** pela rede interna do Dokku (sem expor tráfego de inferência à internet pública).
+Repositório de infraestrutura e deployment para rodar o **9Router** (`decolua/9router:0.5.91`) com **OpenCode AI** (`opencode-ai`) como aplicação gerenciada no **Dokku**, conectado com segurança e baixa latência ao **Hermes Agent** através da rede interna privada do Dokku.
 
 ---
 
 ## 🏛️ Arquitetura
 
 ```
-+-------------------------------------------------------------------------+
-|                              Servidor Dokku                             |
-|                                                                         |
-|  +---------------------------+         +-----------------------------+  |
-|  |       hermes-agent        |         |           9router           |  |
-|  |                           |         |                             |  |
-|  |  OPENAI_BASE_URL:         |  HTTP   |  Endpoint:                  |  |
-|  |  http://9router.web:20128 | ------> |  porta 20128 (/v1)          |  |
-|  |  /v1                      | (direto)|                             |  |
-|  +---------------------------+         +-----------------------------+  |
-|               \                               /                         |
-|                \                             /                          |
-|         [ Rede Interna Dokku: `ai-internal-net` ]                       |
-|                                                                         |
-|                                         +----------------------------+  |
-|                                         | Storage Persistente Host   |  |
-|                                         | /var/lib/dokku/data/...    |  |
-|                                         | mapeado em /app/data       |  |
-|                                         +----------------------------+  |
-+-------------------------------------------------------------------------+
++---------------------------------------------------------------------------------------+
+|                                    Servidor Dokku                                     |
+|                                                                                       |
+|  +---------------------------+                   +---------------------------------+  |
+|  |       hermes-agent        |                   |             9router             |  |
+|  |                           |                   |      (com opencode-ai CLI)      |  |
+|  |  OPENAI_BASE_URL:         |    HTTP local     |  Porta interna: 20128 (/v1)     |  |
+|  |  http://9router.web:20128 | ----------------> |  DB: /app/data/db/data.sqlite   |  |
+|  |  /v1                      |   (sem internet)  |  Home: symlink -> /app/data     |  |
+|  +---------------------------+                   +---------------------------------+  |
+|               \                                                  /                    |
+|                \                                                /                     |
+|           [ Rede Interna Dokku Isolada: `ai-internal-net` ]                           |
+|                                                                                       |
+|                                                  +---------------------------------+  |
+|                                                  | Storage Persistente no Host     |  |
+|                                                  | /var/lib/dokku/data/storage/... |  |
+|                                                  | montado em /app/data            |  |
+|                                                  +---------------------------------+  |
++---------------------------------------------------------------------------------------+
 ```
 
-### Por que usar a rede interna do Dokku?
-1. **Performance**: Comunicação local em localhost/bridge docker, sem passar por roteadores externos ou proxy reverso.
-2. **Segurança**: As chamadas do Hermes para o 9Router não transitam pela internet.
-3. **Resolução Automática**: O Dokku cria aliases DNS internos (`<app-name>.web` ou `<app-name>.web.1`) para todos os containers que compartilham a rede.
+### Vantagens dessa Arquitetura:
+1. **Zero Tráfego Público de Inferência**: As chamadas do Hermes para o 9Router trafegam via localhost/bridge docker interno (`http://9router.web:20128/v1`), sem latência de internet e sem risco de interceptação.
+2. **Persistência Absoluta**: Provedores, chaves de API, banco SQLite (`/app/data/db/data.sqlite`) e arquivos de sessão ficam salvos no host e sobrevivem a qualquer novo deploy.
+3. **Zero Downtime Deploy**: O Dokku utiliza o [`app.json`](./app.json) para testar a saúde do container na porta 20128 antes de chavear o tráfego do container antigo para o novo.
+
+---
+
+## 📦 Componentes Incluídos na Imagem
+
+* **9Router (`0.5.91`)**: Proxy e roteador de IA com compressão de tokens e fallback automático de provedores (OpenAI, Anthropic, Gemini, Groq, Ollama, etc.).
+* **OpenCode AI (`opencode-ai`)**: Agente autônomo de código via linha de comando (`opencode`).
+* **npm (`latest`)**: Atualizado durante o build antes das instalações para evitar incompatibilidades.
 
 ---
 
 ## 🚀 Passo a Passo de Instalação e Deploy
 
-Você pode executar o script automático [`setup-dokku.sh`](./setup-dokku.sh) no seu servidor ou seguir os comandos abaixo manualmente.
+Você pode rodar o script automático [`setup-dokku.sh`](./setup-dokku.sh) no servidor ou seguir os passos abaixo:
 
-### 1. Criar a Rede Customizada no Dokku
-
-No servidor Dokku (via SSH):
+### 1. Criar a Rede Interna no Dokku (via SSH no servidor)
 
 ```bash
 dokku network:create ai-internal-net
@@ -50,7 +56,7 @@ dokku network:create ai-internal-net
 
 ---
 
-### 2. Criar o Aplicativo do 9Router
+### 2. Criar a Aplicação no Dokku
 
 ```bash
 dokku apps:create 9router
@@ -58,27 +64,30 @@ dokku apps:create 9router
 
 ---
 
-### 3. Configurar Armazenamento Persistente
+### 3. Configurar o Armazenamento Persistente (Host Mount)
 
-O 9Router salva provedores, chaves de API, credenciais e banco de dados em `/app/data`. É fundamental montar um volume no host para não perder nada ao reiniciar ou atualizar o container:
+> ⚠️ **Essencial para não perder dados nos deploys**: Containers no Dokku são efêmeros. O 9Router precisa deste volume montado:
 
 ```bash
-# Criar diretório no host
+# 1. Cria o diretório no host com permissões completas
 mkdir -p /var/lib/dokku/data/storage/9router
-chmod 777 /var/lib/dokku/data/storage/9router
+chmod -R 777 /var/lib/dokku/data/storage/9router
 
-# Montar no app 9router
+# 2. Conecta o host ao container
 dokku storage:mount 9router /var/lib/dokku/data/storage/9router:/app/data
+
+# 3. Confirma se o volume foi montado
+dokku storage:report 9router
 ```
 
 ---
 
-### 4. Configurar Variáveis de Ambiente e Segurança
+### 4. Configurar Variáveis de Ambiente e Senha Inicial
 
-> ⚠️ **Aviso de Segurança Crítico**: O 9Router requer a definição explícita de um `JWT_SECRET` forte para evitar sequestro de sessões (CVE-2026-55500). Gere uma chave aleatória antes do primeiro deploy.
+> 🔒 **Trava de Segurança do 9Router**: O 9Router bloqueia logins remotos com a senha padrão (`123456`). É obrigatório definir uma senha via `INITIAL_PASSWORD` ou alterá-la via túnel local.
 
 ```bash
-# Gerar segredo seguro
+# Gerar segredo para proteção de tokens de sessão (CVE-2026-55500)
 JWT_SECRET=$(openssl rand -hex 32)
 
 dokku config:set --no-restart 9router \
@@ -86,119 +95,120 @@ dokku config:set --no-restart 9router \
   DATA_DIR=/app/data \
   HOSTNAME=0.0.0.0 \
   NODE_ENV=production \
-  JWT_SECRET="${JWT_SECRET}"
+  JWT_SECRET="${JWT_SECRET}" \
+  INITIAL_PASSWORD="SuaNovaSenhaSeguraAqui123!"
 ```
 
 ---
 
-### 5. Conectar Ambas as Aplicações à Rede Interna
-
-Associe o `9router` e a sua aplicação do `hermes` (substitua pelo nome exato do app no Dokku) à rede interna:
+### 5. Anexar Aplicações à Rede Interna
 
 ```bash
 dokku network:set 9router attach-post-create ai-internal-net
 dokku network:set hermes attach-post-create ai-internal-net
 ```
+*(Substitua `hermes` pelo nome exato do app do Hermes no seu Dokku, caso seja diferente).*
 
 ---
 
-### 6. Configurar o Acesso à Interface Web do 9Router
+### 6. Configurar o Acesso à Interface Web (Domínio e SSL)
 
-Para você configurar os provedores de IA (OpenAI, Anthropic, Gemini, Groq, Ollama, etc.) no 9Router, você precisa acessar o painel web. Existem duas abordagens:
+Para acessar o painel de controle do 9Router via navegador:
 
-#### Opção A: Expor com Domínio e SSL (Recomendado se quiser gerenciar pela web)
+#### Opção A: Domínio Público com SSL / Cloudflare (Recomendado)
 ```bash
-# Definir seu subdomínio
-dokku domains:set 9router 9router.seu-dominio.com
+# 1. Definir seu domínio
+dokku domains:set 9router router.seu-dominio.online
 
-# Mapear as portas HTTP/HTTPS para a porta interna 20128 do 9Router
+# 2. Mapear portas 80 e 443 para a porta interna 20128
 dokku ports:set 9router http:80:20128 https:443:20128
 
-# Habilitar certificado Let's Encrypt gratuito
+# 3. Habilitar Let's Encrypt (se não estiver usando SSL flexível da Cloudflare)
 dokku letsencrypt:enable 9router
 ```
 
-> **Importante**: Ao acessar o painel pela primeira vez, altere imediatamente a senha padrão nas configurações do painel!
+> **Dica Cloudflare**: Se estiver usando o proxy da Cloudflare (nuvem laranja), configure o modo SSL/TLS da Cloudflare como **Full** (se o Let's Encrypt estiver ativo no Dokku) ou **Flexible** (se o Dokku responder apenas em HTTP 80).
 
-#### Opção B: Manter 100% Privado (Sem porta pública aberta)
-Se você não deseja expor a interface web do 9Router para a internet:
+#### Opção B: Acesso 100% Privado (Via Túnel SSH)
+Se preferir não abrir portas públicas:
 ```bash
 dokku ports:clear 9router
-```
-E para acessar o painel do 9Router quando precisar configurar chaves, faça um túnel SSH do seu computador pessoal:
-```bash
+
+# No seu terminal local:
 ssh -L 20128:$(dokku network:report 9router --network-computed-web-ip):20128 usuario@seu-servidor-dokku
-# Depois abra no navegador: http://localhost:20128
+# Abra no navegador: http://localhost:20128
 ```
 
 ---
 
 ### 7. Deploy do 9Router
 
-Você tem duas formas de fazer o deploy:
+No seu computador de desenvolvimento:
 
-#### Método 1: Pelo Git Push (Usando os arquivos deste repositório)
-No seu computador local (dentro desta pasta `9router`):
 ```bash
-git init
-git add .
-git commit -m "feat: setup dokku 9router"
+# Adicionar o remote do Dokku (caso ainda não tenha adicionado)
 git remote add dokku dokku@seu-servidor-dokku:9router
-git push dokku main
-```
 
-#### Método 2: Direto da Imagem Docker (Sem precisar de git)
-Direto no terminal do seu servidor Dokku:
-```bash
-dokku git:from-image 9router decolua/9router:latest
+# Enviar a branch main
+git push dokku main
 ```
 
 ---
 
-### 8. Reiniciar/Reconstruir o Hermes Agent
+### 8. Integrar o Hermes Agent ao 9Router
 
-Para que o container do Hermes ingresse na nova rede `ai-internal-net`:
+Após o deploy do 9Router, reinicie o container do Hermes para que ele receba o alias DNS da rede:
 
 ```bash
 dokku ps:rebuild hermes
 ```
 
----
-
-### 9. Configurar o Hermes Agent para usar o 9Router
-
-Dentro da rede `ai-internal-net`, o 9Router estará acessível no endereço:
-```
-http://9router.web:20128/v1
-```
-
-#### Se o Hermes aceita variáveis de ambiente no Dokku:
+Configure a URL base da API no Hermes:
 ```bash
 dokku config:set hermes \
   OPENAI_BASE_URL="http://9router.web:20128/v1" \
   OPENAI_API_KEY="sk-9router"
 ```
 
-#### Se você configura o Hermes via CLI ou arquivo `~/.hermes/config.yaml`:
-Acesse o container do Hermes ou configure o arquivo:
+---
+
+## 🔍 Testes e Verificação
+
+### 1. Testar se o Hermes enxerga o 9Router pela rede interna:
 ```bash
-dokku enter hermes web
-# Dentro do container:
-hermes model
-# Escolha Custom / OpenAI-Compatible
-# Base URL: http://9router.web:20128/v1
-# API Key: qualquer valor (ex: sk-9router)
-# Model: modelo configurado no 9router (ex: claude-3-7-sonnet, gpt-4o, etc.)
+dokku enter hermes web curl -s http://9router.web:20128/v1/models
+```
+Se retornar um JSON com a lista de modelos, a comunicação interna privada está 100% operacional.
+
+### 2. Verificar a persistência dos dados:
+```bash
+# No host do servidor, confirme se os arquivos do SQLite estão sendo gravados:
+ls -la /var/lib/dokku/data/storage/9router/db/
+```
+
+### 3. Verificar o Healthcheck:
+```bash
+dokku checks:report 9router
 ```
 
 ---
 
-## 🔍 Como Testar a Conexão Interna
+## 🛠️ Solução de Problemas Comuns (Troubleshooting)
 
-Para testar se o Hermes consegue falar com o 9Router diretamente pela rede do Dokku:
+### Erro 502 Bad Gateway
+1. Verifique se o container está rodando: `dokku ps:report 9router`.
+2. Verifique o mapeamento de portas: `dokku ports:report 9router`. Deve conter `http:80:20128` e `https:443:20128`.
+3. Verifique as permissões da pasta de storage: `chmod -R 777 /var/lib/dokku/data/storage/9router`.
+4. No Cloudflare, certifique-se de que a criptografia SSL/TLS corresponde ao certificado configurado no Dokku.
 
+### "Default password must be changed before remote access"
+O 9Router bloqueia conexões vindas da internet se a senha ainda for `123456`. Defina uma nova senha via variável de ambiente:
 ```bash
-dokku enter hermes web curl -s http://9router.web:20128/v1/models
+dokku config:set 9router INITIAL_PASSWORD="SuaNovaSenhaAqui"
 ```
 
-Se retornar a lista de modelos em formato JSON, a comunicação interna está 100% operacional e isolada!
+### Erro "src refspec master does not match any"
+Este repositório utiliza a branch **`main`**. Use sempre:
+```bash
+git push dokku main
+```

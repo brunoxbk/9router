@@ -20,17 +20,25 @@ dokku apps:exists "${DOKKU_APP_9ROUTER}" || dokku apps:create "${DOKKU_APP_9ROUT
 
 echo "==> 3. Configurando armazenamento persistente para o 9Router..."
 mkdir -p "${HOST_DATA_DIR}"
-chmod 777 "${HOST_DATA_DIR}"
+chmod -R 777 "${HOST_DATA_DIR}"
 dokku storage:mount "${DOKKU_APP_9ROUTER}" "${HOST_DATA_DIR}:/app/data" || true
 
-echo "==> 4. Configurando variáveis de ambiente essenciais (incluindo JWT_SECRET de segurança)..."
+echo "==> 4. Configurando variáveis de ambiente essenciais (incluindo JWT_SECRET e INITIAL_PASSWORD)..."
 JWT_SECRET=$(openssl rand -hex 32)
-dokku config:set --no-restart "${DOKKU_APP_9ROUTER}" \
-  PORT=20128 \
-  DATA_DIR=/app/data \
-  HOSTNAME=0.0.0.0 \
-  NODE_ENV=production \
+CONFIG_VARS=(
+  PORT=20128
+  DATA_DIR=/app/data
+  HOSTNAME=0.0.0.0
+  NODE_ENV=production
   JWT_SECRET="${JWT_SECRET}"
+)
+
+# Adiciona INITIAL_PASSWORD se definida pelo usuário ou gera uma segura
+if [ -n "${INITIAL_PASSWORD:-}" ]; then
+  CONFIG_VARS+=(INITIAL_PASSWORD="${INITIAL_PASSWORD}")
+fi
+
+dokku config:set --no-restart "${DOKKU_APP_9ROUTER}" "${CONFIG_VARS[@]}"
 
 echo "==> 5. Anexando o 9Router e o Hermes Agent à mesma rede interna (${NETWORK_NAME})..."
 dokku network:set "${DOKKU_APP_9ROUTER}" attach-post-create "${NETWORK_NAME}"
