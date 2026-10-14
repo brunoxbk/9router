@@ -1,10 +1,13 @@
-FROM decolua/9router:0.5.91
+FROM decolua/9router:latest
 
 # Atualiza o npm para a versão mais recente antes de tudo,
-# depois atualiza o 9router e instala o opencode-ai
+# atualiza o 9router para a release mais recente do npm (v0.5.99+),
+# sincroniza os arquivos da aplicação e instala o opencode-ai
 RUN npm install -g npm@latest && \
-    npm i -g 9router@latest --prefer-online && \
-    npm install -g opencode-ai
+    npm install -g 9router@latest --prefer-online && \
+    npm install -g opencode-ai && \
+    cp -rf $(npm root -g)/9router/app/* /app/ 2>/dev/null || true && \
+    cp -f $(npm root -g)/9router/package.json /app/package.json 2>/dev/null || true
 
 # Diretório de persistência e configurações de rede
 ENV PORT=20128
@@ -19,7 +22,7 @@ RUN mkdir -p /app/data /home/node && \
     rm -rf /root/.9router /home/node/.9router 2>/dev/null || true && \
     ln -s /app/data /root/.9router && \
     ln -s /app/data /home/node/.9router && \
-    chown -R node:node /app/data /home/node
+    chown -R node:node /app /app/data /home/node
 
 # Declaração do volume de persistência
 VOLUME ["/app/data"]
