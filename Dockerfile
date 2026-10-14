@@ -1,13 +1,11 @@
 FROM decolua/9router:latest
 
-# Atualiza o npm para a versão mais recente antes de tudo,
-# atualiza o 9router para a release mais recente do npm (v0.5.99+),
-# sincroniza os arquivos da aplicação e instala o opencode-ai
-RUN npm install -g npm@latest && \
-    npm install -g 9router@latest --prefer-online && \
-    npm install -g opencode-ai && \
-    cp -rf $(npm root -g)/9router/app/* /app/ 2>/dev/null || true && \
-    cp -f $(npm root -g)/9router/package.json /app/package.json 2>/dev/null || true
+# Atualiza o 9router para a release mais recente do npm (v0.5.99+) e instala o opencode-ai.
+# Sincroniza todos os arquivos (incluindo diretórios ocultos como .next-cli-build) para /app
+RUN npm install -g --ignore-scripts=false 9router@latest opencode-ai && \
+    rm -rf /app/.next 2>/dev/null || true && \
+    cp -a $(npm root -g)/9router/app/. /app/ && \
+    cp -f $(npm root -g)/9router/package.json /app/package.json
 
 # Diretório de persistência e configurações de rede
 ENV PORT=20128
